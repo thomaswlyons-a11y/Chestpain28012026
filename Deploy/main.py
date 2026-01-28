@@ -61,7 +61,7 @@ if not st.session_state['terms_accepted']:
             st.session_state['terms_accepted'] = True
             st.rerun()
             
-    st.stop() # <--- This prevents the rest of the app from running until accepted
+    st.stop() 
 # ==========================================
 # END OF SPLASH SCREEN
 # ==========================================
@@ -373,7 +373,7 @@ nurse_cost = st.sidebar.slider("Nurse (£/hr)", 20, 50, 30)
 current_sig = f"{platform_type}-{use_single_sample}-{rule_out}-{daily_census}"
 
 # TABS
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📐 Pathway", "📄 Report"])
+tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📐 Pathway & Letters", "📄 Report"])
 
 with tab1:
     col_head, col_btn = st.columns([3, 1])
@@ -414,14 +414,63 @@ with tab1:
         st.plotly_chart(plot_sankey(df), use_container_width=True)
 
 with tab2:
-    c1, c2 = st.columns([3, 2])
-    with c1: st.graphviz_chart(render_flowchart(platform_type, use_single_sample, {'rule_out': rule_out, 'rule_in': rule_in}, discharge_dest))
+    # -----------------------------------------------------
+    # MODIFIED SECTION: EXPANDED LETTERS
+    # -----------------------------------------------------
+    c1, c2 = st.columns([2, 2])
+    with c1: 
+        st.subheader("Pathway Visualization")
+        st.graphviz_chart(render_flowchart(platform_type, use_single_sample, {'rule_out': rule_out, 'rule_in': rule_in}, discharge_dest))
+        st.info(f"Protocol: {'Single Sample Active' if use_single_sample else 'Traditional Serial Only'}")
+    
     with c2:
-        st.info("Protocol Logic:")
-        if use_single_sample:
-            st.success("✅ **Single Sample Rule-Out ENABLED**\n\nPatients with T0 < Limit and Low Risk are discharged immediately. The rest proceed to T1.")
-        else:
-            st.warning("⚠️ **Traditional Pathway ONLY**\n\nSingle sample rule-out is DISABLED. Every patient must wait for the second test (0/1h).")
+        st.subheader("📨 Discharge Communication Generator")
+        st.caption("Auto-generated draft based on selected destination.")
+        
+        # Mock Data for Letter Preview
+        mock_trop = random.randint(0, rule_out - 1) if rule_out > 1 else 0
+        
+        # LOGIC FOR DIFFERENT DEPARTMENTS
+        if discharge_dest == "GP Surgery":
+            recipient = "General Practitioner"
+            context = "This patient has been ruled out for Acute Coronary Syndrome using our department's high-sensitivity protocol."
+            plan = "We have reassured the patient that their pain is likely non-cardiac. Please review their cardiovascular risk factors (BP/Lipids) in the community. No acute cardiology follow-up is required."
+        elif discharge_dest == "Virtual Ward":
+            recipient = "Virtual Ward Team / Ambulatory Care"
+            context = "This patient is stable for discharge but requires remote surveillance."
+            plan = "We have onboarded them to the Home Monitoring Platform. Please review their 24h ECG trace tomorrow. If recurrent symptoms occur, they have been instructed to call the VW hotline."
+        else: # RACPC
+            recipient = "Rapid Access Chest Pain Clinic"
+            context = "Acute MI has been excluded, but the clinical history suggests stable Angina."
+            plan = "We have booked them into the next available RACPC slot for consideration of CT Coronary Angiogram. They have been discharged on Aspirin pending review."
+
+        letter_text = f"""
+        **TO:** {recipient}
+        **FROM:** Emergency Department (ED)
+        **DATE:** {datetime.now().strftime('%Y-%m-%d')}
+        
+        **RE:** Emergency Discharge Summary
+        
+        **Clinical Reasoning for Discharge:**
+        This patient presented with chest pain. We applied the approved {platform_type} pathway.
+        
+        * **Biomarker Result:** Troponin T0 = {mock_trop} ng/L
+        * **Threshold Applied:** < {rule_out} ng/L
+        * **Risk Stratification:** HEART Score low / delta unchanged.
+        
+        **Conclusion:**
+        Based on the {platform_type} result being below the validated rule-out threshold of {rule_out} ng/L, we have successfully excluded acute myocardial damage. The likelihood of NSTEMI is <0.5%.
+        
+        **Management Plan:**
+        {plan}
+        
+        {context}
+        
+        Sincerely,
+        ED Consultant in Charge
+        """
+        
+        st.markdown(f"<div style='background-color:#fff; color:#000; padding:15px; border:1px solid #ddd; border-radius:5px;'>{letter_text}</div>", unsafe_allow_html=True)
 
 with tab3:
     st.header("Director's Report")
