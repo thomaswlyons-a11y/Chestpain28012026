@@ -1,14 +1,44 @@
 import streamlit as st
-import simulation
-import visuals
-import reports
+import graphviz
+import random
 import time
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+from datetime import datetime
+from io import BytesIO
 
-# --- SETUP ---
+# Try to import reportlab for PDF generation
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+    HAS_REPORTLAB = True
+except ImportError:
+    HAS_REPORTLAB = False
+
+# --- 1. CONFIGURATION & STYLING ---
 st.set_page_config(page_title="NHS Clinical Director Sim", layout="wide", page_icon="🫀")
-visuals.load_css()
 
-# Initialize State
+NHS_BLUE = "#005EB8"
+
+st.markdown("""
+<style>
+    .metric-card {
+        background-color: #F0F2F6;
+        border-left: 5px solid #005EB8;
+        padding: 15px;
+        border-radius: 5px;
+        text-align: center;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+        margin-bottom: 10px;
+    }
+    .metric-card h3 { color: #005EB8; margin: 0; }
+    .metric-card p { color: #555; margin: 0; font-size: 0.9em; }
+    .stButton>button { width: 100%; border-radius: 5px; background-color: #005EB8; color: white; height: 3em; }
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize Session State
 if 'simulation_results' not in st.session_state:
     st.session_state['simulation_results'] = None
 if 'financials' not in st.session_state:
@@ -16,117 +46,47 @@ if 'financials' not in st.session_state:
 if 'last_run_settings' not in st.session_state:
     st.session_state['last_run_settings'] = ""
 
-# --- SIDEBAR ---
-st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/f/fa/NHS-Logo.svg", width=80)
-st.sidebar.title("Operations Control")
+# --- 2. THE SIMULATION ENGINE (MACROS2 / ESC) ---
 
-st.sidebar.subheader("1. Volume")
-daily_census = st.sidebar.number_input("Daily ED Census", value=250, step=10)
-chest_pain_pct = st.sidebar.slider("% Chest Pain", 0, 25, 10)
-acs_prevalence = st.sidebar.slider("% True ACS", 0, 30, 15)
-
-st.sidebar.subheader("2. Strategy")
-modality_name = st.sidebar.radio("Modality:", ("Central Lab", "Point of Care (POC)"))
-
-# Pack settings for simulation
-if modality_name == "Point of Care (POC)":
-    strat_settings = {'cost': 30.00, 'time': 20, 'availability': 0.85}
-else:
-    strat_settings = {'cost': 5.00, 'time': 90, 'availability': 0.35}
-
-st.sidebar.subheader("3. Limits & Staff")
-rule_out = st.sidebar.slider("Rule Out (<)", 0, 20, 5)
-rule_in = st.sidebar.slider("Rule In (>)", 20, 1000, 52)
-limits = {'rule_out': rule_out, 'rule_in': rule_in}
-
-discharge_dest = st.sidebar.selectbox("Safety Net:", ("GP Surgery", "Virtual Ward", "RACPC Clinic"))
-
-consultant_cost = st.sidebar.slider("Consultant Cost (£/hr)", 100, 200, 135)
-nurse_cost = st.sidebar.slider("Nurse Cost (£/hr)", 20, 50, 30)
-
-# Signature to detect changes
-current_sig = f"{daily_census}-{modality_name}-{rule_out}-{discharge_dest}"
-
-# --- MAIN TABS ---
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📐 Pathway", "📄 Report"])
-
-# TAB 1: DASHBOARD
-with tab1:
-    col_head, col_btn = st.columns([3, 1])
-    col_head.markdown("### 🫀 Real-time Capacity Simulator")
+def generate_patient_profile(i, acs_prevalence):
+    """Generates complex patient profiles"""
+    rand = random.random() * 100
     
-    if col_btn.button("▶ RUN SIMULATION"):
-        with st.spinner("Processing..."):
-            # CALL THE SIMULATION MODULE
-            df, fins, vol = simulation.run_shift(
-                daily_census, chest_pain_pct, acs_prevalence, 
-                strat_settings, limits, discharge_dest
-            )
-            
-            # Add staff costs (logic stays in main or moves to sim, usually fine here)
-            staff_cost_per_min = (consultant_cost + nurse_cost) / 60
-            fins['waiting_cost'] = fins['waiting_minutes'] * staff_cost_per_min
-            fins['total_cost'] = fins['waiting_cost'] + (fins['test_count'] * fins['test_unit_cost'])
-            
-            # Save to state
-            st.session_state['simulation_results'] = df
-            st.session_state['financials'] = fins
-            st.session_state['last_run_settings'] = current_sig
-            st.success("Done!")
-
-    # Display Visuals
-    if st.session_state['simulation_results'] is not None:
-        df = st.session_state['simulation_results']
-        fin = st.session_state['financials']
-        
-        # KPI Cards
-    # KPI Cards
-        k1, k2, k3, k4 = st.columns(4)
-        k1.markdown(f"""<div class="metric-card"><h3>£{fin['total_cost']:,.0f}</h3><p>Daily Cost</p></div>""", unsafe_allow_html=True)
-        
-        # Count Missed UA cases (Patient Safety Indicator)
-        missed_ua = len(df[(df['Condition'] == "Unstable Angina") & (df['Action'].str.contains("Discharge"))])
-        if missed_ua > 0:
-            k2.markdown(f"""<div class="metric-card" style="border-left: 5px solid red;"><h3>{missed_ua}</h3><p>⚠️ Missed UA</p></div>""", unsafe_allow_html=True)
-        else:
-             k2.markdown(f"""<div class="metric-card"><h3>0</h3><p>Safety Incidents</p></div>""", unsafe_allow_html=True)
-
-        k3.markdown(f"""<div class="metric-card"><h3>{len(df[df['Condition']=='NSTEMI'])}</h3><p>True NSTEMI</p></div>""", unsafe_allow_html=True)
-        
-        # Show Chronic Injury ("Troponinitis") stats
-        chronic = len(df[df['Condition']=='Chronic Injury'])
-        k4.markdown(f"""<div class="metric-card"><h3>{chronic}</h3><p>Chronic Injury</p></div>""", unsafe_allow_html=True)
-        st.divider()
-        
-        # Charts from visuals.py
-        c1, c2 = st.columns(2)
-        with c1:
-            st.plotly_chart(visuals.plot_sankey(df), use_container_width=True)
-        with c2:
-            st.plotly_chart(visuals.plot_scatter(df), use_container_width=True)
-
-# TAB 2: PATHWAY
-with tab2:
-    col_g, col_txt = st.columns([3, 2])
-    with col_g:
-        st.graphviz_chart(visuals.render_flowchart(modality_name, limits, discharge_dest))
-    with col_txt:
-        st.info("Auto-generated GP Letter:")
-        st.text_area("Draft:", f"Dear GP,\nPatient discharged to {discharge_dest}.\nTrop < {rule_out}ng/L.\nRegards, ED", height=200)
-
-# TAB 3: REPORT
-with tab3:
-    st.header("Director's Report")
-    if st.session_state['simulation_results'] is None:
-        st.warning("Run simulation first.")
-    elif st.session_state['last_run_settings'] != current_sig:
-        st.error("Settings changed. Please re-run simulation.")
+    # 1. Determine Condition
+    if rand < acs_prevalence: 
+        condition = "NSTEMI" # True MI
+        heart_score = random.randint(5, 10)
+        base_trop = random.randint(20, 800)
+        delta = random.randint(10, 100)
+    elif rand < (acs_prevalence + 5):
+        condition = "Unstable Angina" # Ischaemia, no Trop rise
+        heart_score = random.randint(4, 9)
+        base_trop = random.randint(0, 10) 
+        delta = random.randint(0, 2)
+    elif rand < (acs_prevalence + 15):
+        condition = "Chronic Injury" # Stable high trop (e.g. CKD)
+        heart_score = random.randint(3, 8)
+        base_trop = random.randint(20, 60)
+        delta = random.randint(0, 3)
     else:
-        fin = st.session_state['financials']
-        st.metric("Proj. Annual Cost", f"£{fin['total_cost']*365:,.0f}")
-        
-        pdf_data = reports.generate_pdf(modality_name, discharge_dest, fin, fin['test_count'], limits)
-        if pdf_data:
-            st.download_button("Download PDF", pdf_data, "Report.pdf", "application/pdf")
-        else:
-            st.error("PDF Library Missing")
+        condition = "Non-Cardiac"
+        heart_score = random.choices([0,1,2,3,4,5], weights=[30,30,20,10,5,5])[0]
+        base_trop = random.randint(0, 6)
+        delta = random.randint(0, 1)
+
+    return {
+        "Patient ID": i,
+        "Condition": condition,
+        "HEART Score": heart_score,
+        "T0": base_trop,
+        "T1": base_trop + delta
+    }
+
+def run_shift(volume, chest_pain_pct, acs_prevalence, strategy_settings, limits, discharge_dest):
+    """Runs the simulation logic"""
+    results_log = []
+    beds_blocked_count = 0
+    total_wait_minutes = 0
+    daily_cp_volume = int(volume * (chest_pain_pct / 100))
+    
+    for i in range(1, daily_
