@@ -77,10 +77,10 @@ def generate_patient_profile(i, acs_prevalence):
 
 def run_shift(volume, chest_pain_pct, acs_prevalence, platform_type, use_single_sample, limits, discharge_dest):
     """
-    Runs Waterfall Simulation:
-    Step 1: Everyone gets Test 1 (T0)
-    Step 2: Single Sample Exit? (If enabled)
-    Step 3: Everyone else gets Test 2 (T1) -> 0/1h Rule
+    WATERFALL LOGIC:
+    1. Everyone gets T0.
+    2. Check Single Sample Exit.
+    3. Remainder get T1 (0/1h).
     """
     results_log = []
     beds_blocked_count = 0
@@ -91,52 +91,50 @@ def run_shift(volume, chest_pain_pct, acs_prevalence, platform_type, use_single_
     if platform_type == "Point of Care (POC)":
         COST_PER_TEST = 30.00
         TIME_PER_TEST = 20
-        AVAILABILITY = 0.90 # POC is usually available
+        AVAILABILITY = 0.90 
     else:
         COST_PER_TEST = 5.00
         TIME_PER_TEST = 90
-        AVAILABILITY = 0.40 # Lab often delays initial review
+        AVAILABILITY = 0.40 
         
     total_kit_cost = 0
     
     for i in range(1, daily_cp_volume + 1):
         p = generate_patient_profile(i, acs_prevalence)
         
-        # --- PHASE 1: T0 TEST ---
+        # --- STEP 1: T0 TEST (Everyone) ---
         total_kit_cost += COST_PER_TEST
         wait = TIME_PER_TEST
         
-        # Resource Availability Check (Bottleneck 1)
+        # Bottleneck 1: Doctor availability
         if random.random() > AVAILABILITY:
-            wait += 60 # Doctor wasn't free when result arrived
+            wait += 60 
             
-        # --- PHASE 2: SINGLE SAMPLE CHECK ---
-        pathway_step = "T0 Check"
         outcome = ""
         action = ""
         beds = 0
+        pathway_step = "T0 Check"
         
+        # --- STEP 2: SINGLE SAMPLE DECISION ---
         # Logic: Low Risk (HEART<=3) AND Low Trop (T0 < Limit)
         is_safe_single = p['T0'] < limits['rule_out'] and p['HEART Score'] <= 3
         
         if use_single_sample and is_safe_single:
-            # EXIT PATHWAY HERE
+            # EXIT HERE
             outcome = "Rule Out (Single Sample)"
             action = f"Rapid Discharge ({discharge_dest})"
-            # No bed block, patient leaves
+            beds = 0
         
         else:
-            # --- PHASE 3: SERIAL TESTING (0/1h) ---
-            # Patient stays for second test
+            # --- STEP 3: SERIAL TESTING (0/1h) ---
             pathway_step = "Serial 0h/1h"
-            total_kit_cost += COST_PER_TEST # Second test cost
-            wait += 60 # Waiting for 1h sample time
-            wait += TIME_PER_TEST # Waiting for result
+            total_kit_cost += COST_PER_TEST # Second kit used
+            wait += 60 # Time for 1h sample
+            wait += TIME_PER_TEST # Time for result
             
-            # Logic: 0/1h Delta
-            # Rule Out: T0 Low OR (T0 < 12 & Delta < 3)
+            # 0/1h Logic
             if p['T0'] < limits['rule_out'] or (p['T0'] < 12 and (p['T1'] - p['T0']) < 3):
-                # Unstable Angina Safety Net Check
+                # Unstable Angina Safety Net
                 if p['Condition'] == "Unstable Angina" and p['HEART Score'] >= 4 and random.random() < 0.5:
                      outcome = "Clinical Rescue"
                      action = "Admit (High Risk)"
@@ -145,12 +143,10 @@ def run_shift(volume, chest_pain_pct, acs_prevalence, platform_type, use_single_
                      outcome = "Rule Out (Serial)"
                      action = f"Discharge ({discharge_dest})"
             
-            # Rule In: T0 High OR Delta High
             elif p['T0'] > limits['rule_in'] or (p['T1'] - p['T0']) > 5:
                 outcome = "Rule In"
                 action = "Cath Lab"
             
-            # Grey Zone
             else:
                 outcome = "Grey Zone"
                 action = "Admit AMU (Observe)"
@@ -162,7 +158,7 @@ def run_shift(volume, chest_pain_pct, acs_prevalence, platform_type, use_single_
         beds_blocked_count += beds
         total_wait_minutes += wait
         
-        p.update({"Outcome": outcome, "Action": action, "Wait": wait, "Pathway": pathway_step})
+        p.update({"Outcome": outcome, "Action": action, "Wait": wait})
         results_log.append(p)
 
     df = pd.DataFrame(results_log)
@@ -184,30 +180,28 @@ def plot_sankey(df):
     
     sources, targets, values, colors = [], [], [], []
     
-    # 1. Arrival -> Single Sample Check (Everyone goes here first)
+    # 1. Arrival -> Single Sample Check
     sources.append(label_map["Arrival"])
     targets.append(label_map["Single Sample Check"])
     values.append(len(df))
     colors.append("#E0E0E0")
     
-    # 2. Split: Single Sample Rule Out vs Serial Testing
-    # Group A: Those who ruled out immediately
+    # 2. Split
     single_outs = df[df['Outcome'] == "Rule Out (Single Sample)"]
     if len(single_outs) > 0:
         sources.append(label_map["Single Sample Check"])
         targets.append(label_map["Rule Out (Single Sample)"])
         values.append(len(single_outs))
-        colors.append("#4CAF50") # Green
+        colors.append("#4CAF50") 
         
-    # Group B: The rest go to Serial Testing
     serial_pts = df[df['Outcome'] != "Rule Out (Single Sample)"]
     if len(serial_pts) > 0:
         sources.append(label_map["Single Sample Check"])
         targets.append(label_map["Serial Testing (0h/1h)"])
         values.append(len(serial_pts))
-        colors.append("#FF9800") # Orange (Proceeding)
+        colors.append("#FF9800") 
         
-    # 3. Serial Testing -> Final Outcomes
+    # 3. Serial Outcomes
     if len(serial_pts) > 0:
         flow = serial_pts.groupby(['Outcome']).size().reset_index(name='Count')
         for _, row in flow.iterrows():
@@ -218,7 +212,7 @@ def plot_sankey(df):
             elif "Rule In" in row['Outcome']: colors.append("#F44336")
             else: colors.append("#FF9800")
 
-    # 4. Outcomes -> Action
+    # 4. Action
     flow_act = df.groupby(['Outcome', 'Action']).size().reset_index(name='Count')
     for _, row in flow_act.iterrows():
         sources.append(label_map[row['Outcome']])
@@ -252,7 +246,6 @@ def render_flowchart(platform, use_single, limits, dest):
         dot.node('T1', f'Proceed to T1\n(Serial Test)')
         dot.edge('Decision1', 'T1', label='No')
     else:
-        # Traditional Route
         dot.node('T1', f'Proceed to T1\n(Traditional 0h/1h)')
         dot.edge('T0', 'T1', label='Standard Protocol')
 
@@ -269,7 +262,7 @@ def render_flowchart(platform, use_single, limits, dest):
     
     return dot
 
-def generate_pdf(platform, use_single, dest, financials, cp_vol):
+def generate_pdf(filename, platform, use_single, dest, financials, cp_vol):
     if not HAS_REPORTLAB: return None
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
@@ -290,7 +283,7 @@ def generate_pdf(platform, use_single, dest, financials, cp_vol):
     p.setFont("Helvetica", 11)
     p.drawString(50, y, f"• Platform: {platform}")
     y -= 15
-    p.drawString(50, y, f"• Single Sample Rule-Out: {'ENABLED' if use_single else 'DISABLED (Traditional)'}")
+    p.drawString(50, y, f"• Single Sample Rule-Out: {'ENABLED' if use_single else 'DISABLED'}")
     y -= 15
     p.drawString(50, y, f"• Discharge Safety Net: {dest}")
     
@@ -314,12 +307,10 @@ st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/f/fa/NHS-Logo.s
 st.sidebar.title("Operations Control")
 
 st.sidebar.subheader("1. Testing Platform")
-# The Department chooses ONE platform for everyone
 platform_type = st.sidebar.radio("Primary Diagnostic Tool:", ("Central Lab", "Point of Care (POC)"))
 
 st.sidebar.subheader("2. Protocol Logic")
-# The "Traditional" vs "Modern" Toggle
-use_single_sample = st.sidebar.checkbox("Enable Single Sample Rule Out?", value=True, help="If OFF, all patients undergo serial testing (Traditional). If ON, low risk patients leave early.")
+use_single_sample = st.sidebar.checkbox("Enable Single Sample Rule Out?", value=True, help="If ON, low risk patients leave after T0. If OFF, everyone waits for T1.")
 
 rule_out = st.sidebar.slider("Rule Out (<)", 0, 20, 5)
 rule_in = st.sidebar.slider("Rule In (>)", 20, 1000, 52)
@@ -363,7 +354,6 @@ with tab1:
         k1, k2, k3, k4 = st.columns(4)
         k1.markdown(f"""<div class="metric-card"><h3>£{fin['total_cost']:,.0f}</h3><p>Total Cost</p></div>""", unsafe_allow_html=True)
         
-        # Calculate % Discharged Early
         early_dc = len(df[df['Outcome'] == "Rule Out (Single Sample)"])
         total_pts = len(df)
         pct_early = (early_dc / total_pts) * 100 if total_pts > 0 else 0
@@ -392,5 +382,11 @@ with tab3:
     elif st.session_state['last_run_settings'] != current_sig: st.error("Settings changed.")
     else:
         fin = st.session_state['financials']
-        pdf_data = generate_pdf(platform_type, use_single_sample, discharge_dest, fin, fin['test_count'])
-        if pdf_data: st.download_button("Download PDF", pdf_data, "Report.pdf", "application/pdf")
+        # RESTORED: PDF Filename Input
+        user_filename = st.text_input("Report Filename:", "Strategy_Report.pdf")
+        
+        pdf_data = generate_pdf(user_filename, platform_type, use_single_sample, discharge_dest, fin, fin['test_count'])
+        if pdf_data: 
+            st.download_button("Download PDF", pdf_data, user_filename, "application/pdf")
+        else:
+            st.error("PDF Library Missing (reportlab).")
