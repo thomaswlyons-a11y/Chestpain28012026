@@ -23,6 +23,7 @@ def load_css():
     """, unsafe_allow_html=True)
 
 def plot_sankey(df):
+    # Prepare Labels
     labels = ["Arrival"] + list(df['Condition'].unique()) + list(df['Outcome'].unique()) + list(df['Action'].unique())
     labels = list(dict.fromkeys(labels))
     label_map = {label: i for i, label in enumerate(labels)}
@@ -43,9 +44,9 @@ def plot_sankey(df):
         sources.append(label_map[row['Condition']])
         targets.append(label_map[row['Outcome']])
         values.append(row['Count'])
-        if "Rule Out" in row['Outcome']: colors.append("#4CAF50")
-        elif "Rule In" in row['Outcome']: colors.append("#F44336")
-        else: colors.append("#FF9800")
+        if "Rule Out" in row['Outcome']: colors.append("#4CAF50") # Green
+        elif "Rule In" in row['Outcome']: colors.append("#F44336") # Red
+        else: colors.append("#FF9800") # Orange
         
     # Link 3: Outcome -> Action
     flow_2 = df.groupby(['Outcome', 'Action']).size().reset_index(name='Count')
@@ -63,10 +64,14 @@ def plot_sankey(df):
     return fig
 
 def plot_scatter(df):
+    # FIXED: y="T0" instead of "Trop"
+    # Added T1 to hover_data so you can see the delta change
     fig = px.scatter(
-        df, x="Patient ID", y="Trop", color="Outcome",
+        df, x="Patient ID", y="T0", color="Outcome",
         color_discrete_map={"Rule Out": "green", "Rule In": "red", "Grey Zone": "orange", "Pending": "grey"},
-        log_y=True, hover_data=["Condition", "Action"]
+        log_y=True, 
+        labels={"T0": "Presentation Troponin (ng/L)"},
+        hover_data=["Condition", "Action", "T1"] 
     )
     fig.update_layout(height=400, margin=dict(l=0,r=0,t=20,b=20))
     return fig
@@ -87,7 +92,4 @@ def render_flowchart(modality, limits, dest):
     dot.edge('Start', 'Triage')
     dot.edge('Triage', 'Out')
     dot.edge('Triage', 'Obs')
-    dot.edge('Triage', 'In')
-    dot.edge('Out', 'Dest')
-    dot.edge('In', 'Cath')
-    return dot
+    dot.edge('Triage', 'In
