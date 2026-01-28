@@ -19,6 +19,53 @@ except ImportError:
 # --- 1. CONFIGURATION & STYLING ---
 st.set_page_config(page_title="NHS Clinical Director Sim", layout="wide", page_icon="🫀")
 
+# ==========================================
+# 🛑 SPLASH SCREEN / DISCLAIMER SECTION 🛑
+# ==========================================
+if 'terms_accepted' not in st.session_state:
+    st.session_state['terms_accepted'] = False
+
+if not st.session_state['terms_accepted']:
+    st.markdown("""
+    <style>
+        .splash-container {
+            text-align: center;
+            padding: 50px;
+            background-color: #f8d7da;
+            border: 2px solid #f5c6cb;
+            border-radius: 10px;
+            color: #721c24;
+            margin-top: 100px;
+        }
+        .splash-btn {
+            margin-top: 20px;
+            width: 50%;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("""
+        <div class="splash-container">
+            <h1>⚠️ CLINICAL SAFETY WARNING</h1>
+            <p><strong>THIS IS A DEMO APPLICATION ONLY.</strong></p>
+            <p>Users are NOT to interpret the data produced by this simulation as clinical guidance.</p>
+            <p>Do NOT take this simulation as a realistic interpretation of suspected ACS pathways within the NHS or any other healthcare system.</p>
+            <p>This tool is for educational gameplay purposes only.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.write("") # Spacer
+        if st.button("I UNDERSTAND & ACCEPT", key="accept_btn", type="primary", use_container_width=True):
+            st.session_state['terms_accepted'] = True
+            st.rerun()
+            
+    st.stop() # <--- This prevents the rest of the app from running until accepted
+# ==========================================
+# END OF SPLASH SCREEN
+# ==========================================
+
 NHS_BLUE = "#005EB8"
 
 st.markdown("""
@@ -382,7 +429,6 @@ with tab3:
     elif st.session_state['last_run_settings'] != current_sig: st.error("Settings changed.")
     else:
         fin = st.session_state['financials']
-        # RESTORED: PDF Filename Input
         user_filename = st.text_input("Report Filename:", "Strategy_Report.pdf")
         
         pdf_data = generate_pdf(user_filename, platform_type, use_single_sample, discharge_dest, fin, fin['test_count'])
