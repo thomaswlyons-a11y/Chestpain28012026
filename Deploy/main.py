@@ -80,12 +80,22 @@ with tab1:
         fin = st.session_state['financials']
         
         # KPI Cards
+    # KPI Cards
         k1, k2, k3, k4 = st.columns(4)
         k1.markdown(f"""<div class="metric-card"><h3>£{fin['total_cost']:,.0f}</h3><p>Daily Cost</p></div>""", unsafe_allow_html=True)
-        k2.markdown(f"""<div class="metric-card"><h3>{fin['beds_blocked']}</h3><p>Bed Blocks</p></div>""", unsafe_allow_html=True)
-        k3.markdown(f"""<div class="metric-card"><h3>{len(df[df['Condition']=='ACS (True)'])}</h3><p>True ACS</p></div>""", unsafe_allow_html=True)
-        k4.markdown(f"""<div class="metric-card"><h3>{df['Wait'].mean():.0f} min</h3><p>Avg Wait</p></div>""", unsafe_allow_html=True)
         
+        # Count Missed UA cases (Patient Safety Indicator)
+        missed_ua = len(df[(df['Condition'] == "Unstable Angina") & (df['Action'].str.contains("Discharge"))])
+        if missed_ua > 0:
+            k2.markdown(f"""<div class="metric-card" style="border-left: 5px solid red;"><h3>{missed_ua}</h3><p>⚠️ Missed UA</p></div>""", unsafe_allow_html=True)
+        else:
+             k2.markdown(f"""<div class="metric-card"><h3>0</h3><p>Safety Incidents</p></div>""", unsafe_allow_html=True)
+
+        k3.markdown(f"""<div class="metric-card"><h3>{len(df[df['Condition']=='NSTEMI'])}</h3><p>True NSTEMI</p></div>""", unsafe_allow_html=True)
+        
+        # Show Chronic Injury ("Troponinitis") stats
+        chronic = len(df[df['Condition']=='Chronic Injury'])
+        k4.markdown(f"""<div class="metric-card"><h3>{chronic}</h3><p>Chronic Injury</p></div>""", unsafe_allow_html=True)
         st.divider()
         
         # Charts from visuals.py
