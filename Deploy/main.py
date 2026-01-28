@@ -348,6 +348,23 @@ def generate_pdf(filename, platform, use_single, dest, financials, cp_vol):
     buffer.seek(0)
     return buffer
 
+# --- ADDED: NEW HELPER FOR PATIENT LETTER PDF ---
+def create_letter_pdf(letter_text):
+    if not HAS_REPORTLAB: return None
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    text_object = p.beginText(50, 750)
+    text_object.setFont("Helvetica", 11)
+    
+    # Simple logic to handle newlines in the PDF
+    for line in letter_text.split('\n'):
+        text_object.textLine(line)
+        
+    p.drawText(text_object)
+    p.save()
+    buffer.seek(0)
+    return buffer
+
 # --- 4. MAIN APP ---
 
 st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/f/fa/NHS-Logo.svg", width=80)
@@ -415,7 +432,7 @@ with tab1:
 
 with tab2:
     # -----------------------------------------------------
-    # MODIFIED SECTION: EXPANDED LETTERS
+    # MODIFIED SECTION: EXPANDED LETTERS + PDF EXPORT
     # -----------------------------------------------------
     c1, c2 = st.columns([2, 2])
     with c1: 
@@ -471,6 +488,19 @@ with tab2:
         """
         
         st.markdown(f"<div style='background-color:#fff; color:#000; padding:15px; border:1px solid #ddd; border-radius:5px;'>{letter_text}</div>", unsafe_allow_html=True)
+        
+        # NEW DOWNLOAD BUTTON FOR LETTER
+        st.write("")
+        if HAS_REPORTLAB:
+            # We strip the markdown bolding (**) for the PDF to keep it clean in this simple implementation
+            clean_text = letter_text.replace("**", "")
+            letter_pdf = create_letter_pdf(clean_text)
+            st.download_button(
+                label="📄 Download Discharge Letter (PDF)",
+                data=letter_pdf,
+                file_name="Patient_Discharge_Letter.pdf",
+                mime="application/pdf"
+            )
 
 with tab3:
     st.header("Director's Report")
